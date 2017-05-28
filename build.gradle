@@ -1,0 +1,78 @@
+group 'net.sf.xfd'
+version '1.0-SNAPSHOT'
+
+buildscript {
+    repositories {
+        jcenter()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.excelsiorjet:excelsior-jet-gradle-plugin:1.0.0'
+        classpath 'net.sf.proguard:proguard-gradle:5.2.1'
+        classpath 'com.github.jengelman.gradle.plugins:shadow:2.0.0'
+    }
+}
+
+task wrapper(type: Wrapper) {
+  gradleVersion = '3.3'
+  distributionUrl = "https://services.gradle.org/distributions/gradle-$gradleVersion-all.zip"
+}
+
+apply plugin: 'com.github.johnrengelman.shadow'
+apply plugin: 'java'
+apply plugin: 'excelsiorJet'
+
+sourceCompatibility = 1.8
+
+repositories {
+    mavenCentral()
+    jcenter()
+}
+
+dependencies {
+    compile 'org.tmatesoft.sqljet:sqljet:1.1.9'
+    compile 'mysql:mysql-connector-java:6.0.6'
+    compile 'javax.mail:mail:1.5.0-b01'
+
+    testCompile group: 'junit', name: 'junit', version: '4.12'
+}
+
+import proguard.gradle.*
+
+shadowJar {
+    baseName = 'server'
+    classifier = null
+    version = null
+
+    destinationDir file('build/shadow/')
+    archiveName 'server-shadow.jar'
+
+    configurations = [project.configurations.compile]
+
+    mergeServiceFiles()
+}
+
+task proguardJar(type: ProGuardTask) {
+    configuration file('proguard.pro')
+
+    injars file('build/shadow/server-shadow.jar')
+
+    libraryjars "${System.properties.'java.home'}/lib/rt.jar"
+    libraryjars "${System.properties.'java.home'}/lib/jce.jar"
+
+}
+
+excelsiorJet {
+    mainClass = 'net.sf.xfd.server.Main'
+
+    globalOptimizer = true
+    ignoreProjectDependencies = true
+
+    mainJar file('build/proguard/merged.jar')
+
+    jvmArgs = ['-Djava.awt.headless=true']
+}
+
+proguardJar.dependsOn 'shadowJar'
+
+jetBuild.dependsOn 'proguardJar'

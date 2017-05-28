@@ -1,0 +1,201 @@
+<?php
+function bail($reason) {
+  header('HTTP/1.1 ' . $reason);
+  die();
+}
+
+$http_method_unsafe = $_SERVER['REQUEST_METHOD'];
+
+$deleting = stripos($http_method_unsafe, 'POST') !== FALSE;
+
+if ($deleting) {
+  $target_ids_unsafe = $_POST['removed'];
+
+  if (!isset($target_ids_unsafe)) { bail("204 No content"); }
+
+  $token_unsafe = $_POST['token'];
+
+  if (!isset($token_unsafe)) { bail("404 Not Found"); }
+
+  $key_token = $_SESSION['token'];
+
+  unset($_SESSION['token']);
+
+  if ($key_token !== $supplied_token) { die("Your session has expired"); }
+}
+
+function randstr($len = 64) {
+  return base64_encode(file_get_contents('/dev/urandom', false, null, 0, $len));
+}
+
+function curate($string) {
+  $string = (string) $string;
+
+  return htmlspecialchars($string, ENT_QUOTES | ENT_SUBSTITUTE | ENT_DISALLOWED | ENT_HTML5, 'UTF-8', true);
+}
+
+function date2str($date) {
+  return date('j M H:i', $date / 1000);
+}
+
+mb_internal_encoding("UTF-8");
+
+session_start();
+
+if (!isset($_SESSION['token'])) {
+  $token = randstr(100);
+
+  $_SESSION['token'] = $token;
+} else {
+  $token = $_SESSION['token'];
+}
+
+session_write_close();
+
+$sqlite = new SQLite3(dirname(__DIR__) . '/db/reports.db');
+
+if (!$sqlite) { die('Could not open db'); }
+
+include '../secrets.php';
+
+$link = mysqli_connect($MYSQL_HOST, $MYSQL_U_RW, $MYSQL_PASS, $MYSQL_DB);
+
+if (!$link) {
+  bail('502 Bad Gateway', 'Unable to connect to database');
+}
+
+mysqli_query($link, "set names utf8mb4");
+
+if ($deleting) {
+  $target_ids_unsafe = array_values((array) $target_ids_unsafe);
+  $deleteCount = count($target_ids_unsafe);
+
+  $inQuery = implode(',', array_fill(0, $deleteCount, '?'));
+
+  $sqlitePrepared = $sqlite -> prepare('DELETE FROM reports WHERE _id IN (' . $inQuery . ')');
+
+  if (!$sqlitePrepared) { die('SQLite prepare failed'); }
+
+  $sq = 'DELETE FROM traces WHERE traces._id IN (' . $inQuery . ')';
+
+  $mysqlPrepared = mysqli_prepare($link, $sq);
+
+  if (!$mysqlPrepared) { die('MySQL prepare failed: ' . mysqli_error($link)); }
+
+  $mysqlBindArgs = array($mysqlPrepared, str_pad('', $deleteCount, 's'));
+
+  foreach ($target_ids_unsafe as $idx => $value) {
+    if (!$sqlitePrepared -> bindValue($idx + 1, $value, SQLITE3_INTEGER)) {
+      die("SQLite bind failed");
+    }
+
+    $mysqlBindArgs[] = & $target_ids_unsafe[$idx];
+  }
+
+  if (!call_user_func_array('mysqli_stmt_bind_param', $mysqlBindArgs)) {
+    bail('500 Server Error', 'Bind failed ' . mysqli_stmt_sqlstate($mysqlPrepared) . ' ' . mysqli_stmt_error($mysqlPrepared));
+  }
+
+  if (mysqli_stmt_execute($mysqlPrepared)) {
+    $sqliteRes = $sqlitePrepared -> execute();
+    if ($sqliteRes) $sqliteRes -> finalize();
+    header('Location: ' . $_SERVER['REQUEST_URI']);
+    bail('303 See Other');
+  } else {
+    die('MySQL execute failed: ' . mysqli_stmt_error($mysqlPrepared));
+  }
+
+  mysqli_stmt_close($mysqlPrepared);
+  $sqlitePrepared -> close();
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta content="text/html; charset=UTF-8; X-Content-Type-Options=nosniff" http-equiv="Content-Type">
+<title>All issues</title>
+<style>
+body { background-image:url(bg.gif);background-repeat:repeat-y;background-position:center top; }
+</style>
+</head>
+<body>
+<div class="fouc-protection" style="display: none;">
+<form action="" method="POST">
+<table>
+<tr>
+<th></th><th class="col-count">Seen</th> <th class="col-date">First seen</th> <th class="col-date">Last seen</th> <th class="col-id">Description</th> <th class="col-ip">Sender IP</th><th class="col-uid">UID</th>
+</tr>
+<?php
+$query = "SELECT _id, hash, date, ipv4, uuid, blurb FROM traces ORDER BY traces.date";
+
+$result = mysqli_query($link, $query);
+
+$sqliteQuery = "SELECT hash, count, last_seen FROM reports";
+
+$sqliteResult = $sqlite -> query($sqliteQuery);
+
+if (!$sqliteResult) { die('SQLite query failed'); }
+
+if (!$result) { die('Query failed'); }
+
+$numRows = mysqli_num_rows($result);
+
+if ($numRows == 0) {
+  echo '<tr><td colspan="7"><p class="no_content">No reports</p></td></tr>';
+} else {
+  $table = get_html_translation_table(HTML_SPECIALCHARS, ENT_QUOTES | ENT_HTML5, "UTF-8");
+
+  $search = array_keys($list);
+  $values = array_values($list);
+
+  while ($row = mysqli_fetch_row($result)) {
+    do {
+      $sqliteRow = $sqliteResult -> fetchArray(SQLITE3_ASSOC);
+    }
+    while($sqliteRow && $sqliteRow['hash'] != $row[1]);
+
+    echo '<tr>';
+
+    $issueId = curate($row[0]);
+    $issueHash = curate($row[1]);
+    $issueDate = date2str($row[2]);
+    $issueReporter = long2ip($row[3]);
+    $reporterId = md5($row[4]);
+    $issueBlurb = curate($row[5]);
+
+    $encounteredTimes = ($sqliteRow ? $sqliteRow['count'] : '???');
+    $lastSeen = ($sqliteRow ? date2str($sqliteRow['last_seen']) : '???');
+
+    echo '<td><input type="checkbox" name="removed[]" id="removed" value="' . $issueId . '"></td>';
+
+    echo '<td>' . $encounteredTimes . '</td>';
+
+    echo '<td>' . $issueDate . '</td>';
+
+    echo '<td>' . $lastSeen . '</td>';
+
+    echo '<td><a href="http://xfd.sourceforge.net/get.php?' . $issueId . '">' .  $issueBlurb . '</a></td>';
+
+    echo '<td>' . $issueReporter . '</td>';
+
+    echo '<td><img class="gravatar" width="20" height="20" src="http://www.gravatar.com/avatar/' . $reporterId . '?d=identicon&s=32&f=y"/> </td>';
+
+    echo '</tr>';
+  }
+}
+
+mysqli_free_result($result);
+?>
+</table>
+<?php
+if ($numRows !== 0) {
+  echo '<input type="hidden" name="token" id="token" value="' . $token . '">';
+  echo '<input type="submit" name="submit" value="Remove">';
+  echo '<input type="reset" name="reset" value="Reset">';
+}
+?>
+</form>
+</div>
+<link rel="stylesheet" media="screen" href="/style.css">
+</body>
+</html>

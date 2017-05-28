@@ -1,0 +1,70 @@
+.fouc-protection {
+  display: block !important;
+}
+body {
+  font-family:arial,helvetica,sans-serif;
+  color:#888;
+  background-color:white;
+  font-size:small;
+  margin-top:100px;
+  text-align:center;
+}
+
+table {
+  margin-left: auto;
+  margin-right: auto;
+  border-collapse: collapse;
+}
+table td, table th {
+  border: 1px solid black;
+  min-width: 10px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+table tr:first-child th {
+  border-top: 0;
+}
+table tr:last-child td {
+  border-bottom: 0;
+}
+table tr td:first-child,
+table tr th:first-child {
+  border-left: 0;
+}
+table tr td:last-child,
+table tr th:last-child {
+  border-right: 0;
+}
+.no_content {
+  padding: 40px;
+}
+.col-id {
+  min-width: 60ch;
+}
+.col-date {
+  min-width: 12ch;
+  text-align:center;
+}
+.col-count {
+  min-width: 4ch;
+}
+.col-ip {
+  min-width: 15ch;
+}
+.col-uid {
+  min-width: 32px;
+}
+tr td:nth-child(5) {
+  text-align:left;
+}
+a {
+  text-decoration: none;
+}
+.gravatar {
+  display: inline;
+}
+input[type="submit"] {
+  margin: 20px;
+}
